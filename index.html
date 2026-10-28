@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WASVocoder</title>
+  <meta name="description" content="Interactive source-filter demonstration of speech production and vocoders, running in the browser." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="intro">
+    <h1>WASVocoder</h1>
+    <p>
+      Speech can be modelled as a <em>source</em> (vibrating vocal folds or turbulent noise)
+      shaped by a <em>filter</em> (the resonances of the vocal tract). Choose a source and a
+      vocal tract, either synthetic or estimated from a speech sample, and listen to the result.
+    </p>
+  </header>
+
+  <div class="transport" id="transport"></div>
+
+  <main class="layout">
+    <section class="controls" id="controls"></section>
+    <section class="views">
+      <figure class="view" id="view-waveform">
+        <figcaption>Waveform</figcaption>
+        <canvas id="waveform" class="plot plot-wave"></canvas>
+      </figure>
+      <figure class="view" id="view-spectrogram">
+        <figcaption>Spectrogram <span class="view-option" id="spec-option"></span></figcaption>
+        <canvas id="spectrogram" class="plot plot-spec"></canvas>
+      </figure>
+      <figure class="view" id="view-spectrum">
+        <figcaption>
+          Spectrum at the cursor
+          <span class="legend" id="legend"></span>
+        </figcaption>
+        <canvas id="spectrum" class="plot plot-spectrum"></canvas>
+        <p class="hint">Click or drag on the waveform or spectrogram to move the cursor. Each curve is scaled to a peak of 0&nbsp;dB.</p>
+      </figure>
+    </section>
+  </main>
+
+  <footer class="credits">
+    <p>
+      Made for <a href="https://speechprocessingbook.aalto.fi/">Introduction to Speech Processing</a>.
+      Runs entirely in your browser; nothing is uploaded.
+      <a href="https://github.com/tombackstrom/WASVocoder">Source code</a>.
+    </p>
+  </footer>
+
+  <noscript>This demo needs JavaScript.</noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
