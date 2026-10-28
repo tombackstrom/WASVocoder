@@ -453,3 +453,15 @@ select {
   flex: 1 1 auto;
   text-align: center;
 }
+
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.repo-link {
+  font-size: 0.9rem;
+}
