@@ -258,6 +258,7 @@ function buildControls() {
     slider('vol', 'Volume', 0, 1, 0.01, { format: (v) => `${Math.round(v * 100)} %` }),
     el('button', { type: 'button', class: 'link', onclick: copyLink }, 'Copy link'),
   );
+  document.getElementById('zoom').append(zoomControls());
   document.getElementById('spec-option').append(radio('specwin', [
     ['narrow', 'Narrow-band', '40 ms window: shows the harmonics'],
     ['wide', 'Wide-band', '5 ms window: shows the formants and individual glottal pulses'],
@@ -385,9 +386,13 @@ async function toggleRecording(button) {
 // ---------------------------------------------------------------------------
 // Rendering, plots and playback
 
+// Visible time range, shared by all time plots so they zoom together.
+const view = { t0: state.z0, t1: state.z1 };
+
 const plots = {
-  wave: new WaveformPlot(document.getElementById('waveform')),
-  spec: new SpectrogramPlot(document.getElementById('spectrogram')),
+  wave: new WaveformPlot(document.getElementById('waveform'), view),
+  exc: new WaveformPlot(document.getElementById('excitation'), view),
+  spec: new SpectrogramPlot(document.getElementById('spectrogram'), view),
   spectrum: new SpectrumPlot(document.getElementById('spectrum')),
 };
 
@@ -441,10 +446,12 @@ function doRender() {
   result = render(state, smp);
   const dur = result.len / FS;
   if (cursorT == null || cursorT > dur) cursorT = dur / 2;
+  setView(view.t0, view.t1, false); // keep the zoom inside the new signal
   const sig = listenSignal();
   plots.wave.setData(sig, LISTEN_LABELS[state.listen === 'original' && !result.original ? 'output' : state.listen]);
   plots.spec.windowMs = state.specwin === 'wide' ? 5 : 40;
   plots.spec.setData(sig);
+  plots.exc.setData(result.source);
   drawSpectrum();
   drawLines();
   if (player.playing) player.update(sig, state.loop);
@@ -487,8 +494,85 @@ function buildLegend() {
 
 function drawLines() {
   const lines = [{ t: cursorT, kind: 'cursor' }, { t: player.position(), kind: 'playhead' }];
-  plots.wave.drawOverlay(lines);
-  plots.spec.drawOverlay(lines);
+  for (const p of timePlots) p.drawOverlay(lines);
+}
+
+// ---------------------------------------------------------------------------
+// Zoom (time axis only)
+
+const timePlots = [plots.wave, plots.exc, plots.spec];
+const MIN_SPAN = 0.005; // s
+
+const signalDuration = () => (result ? result.len / FS : state.dur);
+
+function visibleRange() {
+  const d = signalDuration();
+  return view.t1 > view.t0 ? [Math.max(0, view.t0), Math.min(d, view.t1)] : [0, d];
+}
+
+// Sets the visible range (clamped to the signal) and redraws the time plots.
+function setView(t0, t1, redraw = true) {
+  const d = signalDuration();
+  let span = Math.max(MIN_SPAN, t1 - t0);
+  if (!(t1 > t0) || span >= d) {
+    view.t0 = 0;
+    view.t1 = 0;
+  } else {
+    t0 = Math.min(Math.max(0, t0), d - span);
+    view.t0 = Math.round(t0 * 1e4) / 1e4;
+    view.t1 = Math.round((t0 + span) * 1e4) / 1e4;
+  }
+  const moved = state.z0 !== view.t0 || state.z1 !== view.t1;
+  state.z0 = view.t0;
+  state.z1 = view.t1;
+  // Keep the spectrum cursor inside the visible range.
+  const [a, b] = visibleRange();
+  if (cursorT != null && (cursorT < a || cursorT > b)) {
+    cursorT = (a + b) / 2;
+    if (redraw) drawSpectrum();
+  }
+  if (redraw && moved) {
+    for (const p of timePlots) p.refresh();
+    drawLines();
+    syncControls();
+    clearTimeout(urlTimer);
+    urlTimer = setTimeout(() => history.replaceState(null, '', `${location.pathname}${toQuery(state, page)}`), 300);
+  }
+}
+
+// Zoom by `factor` (< 1 zooms in) keeping time `about` at the same place.
+function zoom(factor, about) {
+  const [a, b] = visibleRange();
+  const c = about ?? (cursorT != null && cursorT >= a && cursorT <= b ? cursorT : (a + b) / 2);
+  setView(c - (c - a) * factor, c + (b - c) * factor);
+}
+
+function pan(fraction) {
+  const [a, b] = visibleRange();
+  const shift = (b - a) * fraction;
+  setView(a + shift, b + shift);
+}
+
+function zoomControls() {
+  const out = el('output');
+  const btn = (label, title, fn) => el('button', { type: 'button', title, 'aria-label': title, onclick: fn }, label);
+  const wrap = el('span', { class: 'zoom-buttons' },
+    btn('−', 'Zoom out', () => zoom(2)),
+    btn('+', 'Zoom in (around the cursor)', () => zoom(0.5)),
+    btn('◀', 'Move left', () => pan(-0.5)),
+    btn('▶', 'Move right', () => pan(0.5)),
+    btn('All', 'Show the whole signal', () => setView(0, 0)),
+    out);
+  controls.push({
+    el: wrap,
+    sync() {
+      const [a, b] = visibleRange();
+      const zoomed = view.t1 > view.t0;
+      const digits = b - a < 0.1 ? 3 : 2;
+      out.textContent = zoomed ? `${a.toFixed(digits)}–${b.toFixed(digits)} s` : '';
+    },
+  });
+  return wrap;
 }
 
 function animate() {
@@ -515,7 +599,7 @@ player.onEnded = () => {
 };
 
 // Cursor: click or drag on the waveform or spectrogram.
-for (const plot of [plots.wave, plots.spec]) {
+for (const plot of timePlots) {
   const canvas = plot.canvas;
   const move = (ev) => {
     const rect = canvas.getBoundingClientRect();
@@ -530,6 +614,20 @@ for (const plot of [plots.wave, plots.spec]) {
   canvas.addEventListener('pointermove', (ev) => {
     if (canvas.hasPointerCapture(ev.pointerId)) move(ev);
   });
+  // Ctrl/Cmd + wheel (and touchpad pinch) zooms; horizontal or Shift + wheel pans.
+  // A plain vertical wheel is left alone so the page still scrolls.
+  canvas.addEventListener('wheel', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const scale = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? rect.width : 1;
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      zoom(Math.exp(ev.deltaY * scale * 0.004), plot.xToTime(ev.clientX - rect.left));
+    } else if (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+      ev.preventDefault();
+      const d = ev.shiftKey && !ev.deltaX ? ev.deltaY : ev.deltaX;
+      pan((d * scale) / plot.inner.w);
+    }
+  }, { passive: false });
 }
 
 async function copyLink() {

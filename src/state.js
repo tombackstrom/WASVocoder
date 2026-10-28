@@ -39,6 +39,8 @@ export const DEFAULTS = {
   listen: 'output', // output | source | original
   specwin: 'narrow', // spectrogram: narrow (40 ms, harmonics) | wide (5 ms, formants)
   vol: 0.8,
+  z0: 0, // visible time range in seconds; z1 <= z0 shows everything
+  z1: 0,
 };
 
 // Page-level options that are not synthesis settings.

@@ -31,7 +31,9 @@ Any source can be combined with any vocal tract. When both come from the same sa
 - *Play/Stop* plays once. *Continuous* loops the sound, and you hear changes while it plays (new renders crossfade in at the same position). *Fade* sets a raised-cosine fade at both ends so the loop does not click.
 - *Listen to* switches between the output, the source alone and the original sample. The plots follow the same choice.
 - The spectrogram has a narrow-band mode (40 ms window, shows harmonics) and a wide-band mode (5 ms window, shows formants and glottal pulses).
-- Click or drag on the waveform or spectrogram to choose the time shown in the spectrum plot. That plot overlays the source spectrum, the vocal tract response and the output spectrum.
+- A second waveform pane always shows the source (excitation), so you can compare it with the output.
+- Zoom the time axis with the buttons above the waveform, or with Ctrl/⌘ + scroll (pinch on a touchpad). Pan with horizontal scroll or Shift + scroll. Both waveforms and the spectrogram always share the same time range.
+- Click or drag on a waveform or the spectrogram to choose the time shown in the spectrum plot. That plot overlays the source spectrum, the vocal tract response and the output spectrum.
 - Space starts and stops playback.
 
 ## Links and embedding
@@ -39,7 +41,8 @@ Any source can be combined with any vocal tract. When both come from the same sa
 Every setting is stored in the page address, so *Copy link* gives a link that opens the demo in exactly that state. Two extra options are useful for embedding:
 
 - `embed=1` hides the title and footer.
-- `hide=` takes a comma-separated list of parts to hide: `source`, `tract`, `sample`, `transport`, `waveform`, `spectrogram`, `spectrum`.
+- `hide=` takes a comma-separated list of parts to hide: `source`, `tract`, `sample`, `transport`, `waveform`, `excitation`, `spectrogram`, `spectrum`.
+- `z0` and `z1` set the visible time range in seconds, for example `z0=0.5&z1=0.53` to show a few glottal periods.
 
 For example, a vowel demo for the speech production chapter that hides the speech sample panel:
 

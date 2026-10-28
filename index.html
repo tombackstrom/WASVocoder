@@ -26,8 +26,12 @@
     <section class="controls" id="controls"></section>
     <section class="views">
       <figure class="view" id="view-waveform">
-        <figcaption>Waveform</figcaption>
+        <figcaption>Waveform <span class="view-option zoom" id="zoom"></span></figcaption>
         <canvas id="waveform" class="plot plot-wave"></canvas>
+      </figure>
+      <figure class="view" id="view-excitation">
+        <figcaption>Source (excitation)</figcaption>
+        <canvas id="excitation" class="plot plot-wave"></canvas>
       </figure>
       <figure class="view" id="view-spectrogram">
         <figcaption>Spectrogram <span class="view-option" id="spec-option"></span></figcaption>
@@ -39,7 +43,7 @@
           <span class="legend" id="legend"></span>
         </figcaption>
         <canvas id="spectrum" class="plot plot-spectrum"></canvas>
-        <p class="hint">Click or drag on the waveform or spectrogram to move the cursor. Each curve is scaled to a peak of 0&nbsp;dB.</p>
+        <p class="hint">Click or drag on a waveform or the spectrogram to move the cursor. Zoom with the buttons, or with Ctrl/⌘ + scroll (pinch on a touchpad); pan with horizontal scroll or Shift + scroll. Each curve is scaled to a peak of 0&nbsp;dB.</p>
       </figure>
     </section>
   </main>

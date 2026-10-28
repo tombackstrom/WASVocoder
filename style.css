@@ -465,3 +465,20 @@ select {
 .repo-link {
   font-size: 0.9rem;
 }
+
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.zoom button {
+  padding: 0.1rem 0.5rem;
+  min-width: 2rem;
+}
+
+.zoom output {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: 0.3rem;
+}

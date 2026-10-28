@@ -92,11 +92,24 @@ class Plot {
   }
 }
 
-// Shared code for the two plots with a time axis.
+// Shared code for the plots with a time axis. All of them read the visible
+// time range from one shared `view` object ({ t0, t1 } in seconds; t1 <= t0
+// means the whole signal), so zooming one zooms all and they stay in sync.
 class TimePlot extends Plot {
+  constructor(canvas, view) {
+    super(canvas);
+    this.view = view ?? { t0: 0, t1: 0 };
+  }
+
   setData(x, label) {
     this.x = x;
     this.label = label;
+    this.drawBase();
+    this.drawOverlay();
+  }
+
+  // Call when the shared view has changed.
+  refresh() {
     this.drawBase();
     this.drawOverlay();
   }
@@ -105,30 +118,44 @@ class TimePlot extends Plot {
     return this.x ? this.x.length / FS : 1;
   }
 
+  get range() {
+    const d = this.duration;
+    const { t0, t1 } = this.view;
+    if (!(t1 > t0)) return [0, d];
+    return [Math.max(0, t0), Math.min(d, t1)];
+  }
+
   timeToX(t) {
     const r = this.inner;
-    return r.x + (t / this.duration) * r.w;
+    const [a, b] = this.range;
+    return r.x + ((t - a) / (b - a)) * r.w;
   }
 
   xToTime(px) {
     const r = this.inner;
-    return Math.min(this.duration, Math.max(0, ((px - r.x) / r.w) * this.duration));
+    const [a, b] = this.range;
+    return Math.min(b, Math.max(a, a + ((px - r.x) / r.w) * (b - a)));
   }
 
   timeAxis(g, col) {
     const r = this.inner;
-    const step = niceStep(this.duration, Math.max(2, r.w / 80));
+    const [a, b] = this.range;
+    const step = niceStep(b - a, Math.max(2, r.w / 80));
     g.fillStyle = col.text;
     g.strokeStyle = col.grid;
     g.textAlign = 'center';
     g.textBaseline = 'top';
-    for (let t = 0; t <= this.duration + 1e-9; t += step) {
+    for (let i = Math.ceil(a / step - 1e-9); i * step <= b + 1e-9; i++) {
+      const t = i * step;
       const px = this.timeToX(t);
       g.beginPath();
       g.moveTo(px, r.y + r.h);
       g.lineTo(px, r.y + r.h + 4);
       g.stroke();
-      g.fillText(fmt(t, step), px, r.y + r.h + 6);
+      // Keep the labels at the ends inside the canvas.
+      const label = fmt(t, step);
+      const half = g.measureText(label).width / 2;
+      g.fillText(label, Math.min(px, this.w - half - 2), r.y + r.h + 6);
     }
     g.textAlign = 'right';
     g.fillText('s', r.x - 16, r.y + r.h + 6);
@@ -138,8 +165,9 @@ class TimePlot extends Plot {
   drawLines(g, lines) {
     const col = colours();
     const r = this.inner;
+    const [a, b] = this.range;
     for (const { t, kind } of lines) {
-      if (t == null) continue;
+      if (t == null || t < a || t > b) continue;
       const px = this.timeToX(t);
       g.strokeStyle = kind === 'playhead' ? col.playhead : col.cursor;
       g.lineWidth = kind === 'playhead' ? 1.5 : 1;
@@ -154,6 +182,13 @@ class TimePlot extends Plot {
 }
 
 export class WaveformPlot extends TimePlot {
+  setData(x, label) {
+    // Scale by the peak of the whole signal, so zooming keeps the scale.
+    this.peak = 1e-9;
+    if (x) for (let i = 0; i < x.length; i++) this.peak = Math.max(this.peak, Math.abs(x[i]));
+    super.setData(x, label);
+  }
+
   drawBase() {
     if (!this.dpr) return;
     const { g, col } = this.baseCtx();
@@ -170,26 +205,52 @@ export class WaveformPlot extends TimePlot {
     g.fillText('0', r.x - 6, r.y + r.h / 2);
     if (!this.x) return;
     const x = this.x;
-    let peak = 1e-9;
-    for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+    const [a, b] = this.range;
+    const first = Math.max(0, Math.floor(a * FS));
+    const last = Math.min(x.length, Math.ceil(b * FS) + 1);
+    const yOf = (v) => r.y + r.h / 2 - (v / this.peak) * (r.h / 2) * 0.95;
     const cols = Math.max(1, Math.floor(r.w));
+    const perPixel = (last - first) / cols;
+    g.save();
+    g.beginPath();
+    g.rect(r.x, r.y, r.w, r.h);
+    g.clip();
     g.fillStyle = col.wave;
     g.strokeStyle = col.wave;
     g.beginPath();
-    for (let c = 0; c < cols; c++) {
-      const i0 = Math.floor((c / cols) * x.length);
-      const i1 = Math.max(i0 + 1, Math.floor(((c + 1) / cols) * x.length));
-      let lo = Infinity, hi = -Infinity;
-      for (let i = i0; i < i1 && i < x.length; i++) {
-        lo = Math.min(lo, x[i]);
-        hi = Math.max(hi, x[i]);
+    if (perPixel > 1.5) {
+      // Many samples per pixel: draw the min-max range of each pixel column.
+      for (let c = 0; c < cols; c++) {
+        const i0 = first + Math.floor(c * perPixel);
+        const i1 = Math.max(i0 + 1, first + Math.floor((c + 1) * perPixel));
+        let lo = Infinity, hi = -Infinity;
+        for (let i = i0; i < i1 && i < x.length; i++) {
+          lo = Math.min(lo, x[i]);
+          hi = Math.max(hi, x[i]);
+        }
+        if (hi < lo) continue;
+        g.moveTo(r.x + c + 0.5, yOf(hi));
+        g.lineTo(r.x + c + 0.5, Math.max(yOf(lo), yOf(hi) + 1));
       }
-      const yHi = r.y + r.h / 2 - (hi / peak) * (r.h / 2) * 0.95;
-      const yLo = r.y + r.h / 2 - (lo / peak) * (r.h / 2) * 0.95;
-      g.moveTo(r.x + c + 0.5, yHi);
-      g.lineTo(r.x + c + 0.5, Math.max(yLo, yHi + 1));
+      g.stroke();
+    } else {
+      // Zoomed in: a line through the samples, with dots when they are far apart.
+      for (let i = first; i < last; i++) {
+        const px = this.timeToX(i / FS);
+        if (i === first) g.moveTo(px, yOf(x[i]));
+        else g.lineTo(px, yOf(x[i]));
+      }
+      g.lineWidth = 1.25;
+      g.stroke();
+      if (perPixel < 1 / 6) {
+        for (let i = first; i < last; i++) {
+          g.beginPath();
+          g.arc(this.timeToX(i / FS), yOf(x[i]), 2, 0, 2 * Math.PI);
+          g.fill();
+        }
+      }
     }
-    g.stroke();
+    g.restore();
     if (this.label) {
       g.fillStyle = col.text;
       g.textAlign = 'right';
@@ -200,57 +261,89 @@ export class WaveformPlot extends TimePlot {
 }
 
 export class SpectrogramPlot extends TimePlot {
-  constructor(canvas, { rangeDb = 70, windowMs = 30 } = {}) {
-    super(canvas);
+  constructor(canvas, view, { rangeDb = 70, windowMs = 30 } = {}) {
+    super(canvas, view);
     this.rangeDb = rangeDb;
     this.windowMs = windowMs;
     this.image = document.createElement('canvas');
   }
 
   setData(x, label) {
-    this.computeImage(x);
+    this.x = x;
+    this.top = this.levelTop();
+    this.computeImage();
     super.setData(x, label);
   }
 
-  computeImage(x) {
-    // Short windows (wide-band) show formants, long windows (narrow-band) harmonics.
-    const winLen = Math.round((this.windowMs / 1000) * FS);
+  refresh() {
+    this.computeImage();
+    super.refresh();
+  }
+
+  // Short windows (wide-band) show formants, long windows (narrow-band) harmonics.
+  get winLen() {
+    return Math.round((this.windowMs / 1000) * FS);
+  }
+
+  // dB spectrum of the frame centred at sample c, written into db at offset.
+  frameDb(c, win, re, im, db, offset) {
+    const x = this.x;
+    const n = win.length;
+    re.fill(0);
+    im.fill(0);
+    const start = Math.round(c - n / 2);
+    for (let i = 0; i < n; i++) {
+      const j = start + i;
+      if (j >= 0 && j < x.length) re[i] = x[j] * win[i];
+    }
+    fft(re, im);
+    const nb = re.length / 2 + 1;
+    let top = -Infinity;
+    for (let b = 0; b < nb; b++) {
+      const v = 10 * Math.log10(re[b] * re[b] + im[b] * im[b] + 1e-12);
+      if (db) db[offset + b] = v;
+      top = Math.max(top, v);
+    }
+    return top;
+  }
+
+  // Loudest level in the whole signal, so colours do not change when zooming.
+  levelTop() {
+    const win = hannWindow(this.winLen);
+    const re = new Float64Array(1024);
+    const im = new Float64Array(1024);
+    const hop = Math.max(1, Math.floor(this.winLen / 4));
+    let top = -Infinity;
+    for (let c = 0; c < this.x.length; c += hop) top = Math.max(top, this.frameDb(c, win, re, im, null, 0));
+    return top;
+  }
+
+  computeImage() {
+    if (!this.x) return;
     const nfft = 1024;
     const nb = nfft / 2 + 1;
-    const hop = Math.max(Math.round(0.002 * FS), Math.floor(x.length / 900));
-    const frames = Math.max(1, Math.floor(x.length / hop));
-    const win = hannWindow(winLen);
+    const [a, b] = this.range;
+    const span = Math.max(1, (b - a) * FS);
+    const frames = Math.max(1, Math.min(900, Math.round(span)));
+    const hop = span / frames;
+    const win = hannWindow(this.winLen);
     const db = new Float32Array(frames * nb);
     const re = new Float64Array(nfft);
     const im = new Float64Array(nfft);
-    let top = -Infinity;
-    for (let m = 0; m < frames; m++) {
-      re.fill(0);
-      im.fill(0);
-      const start = m * hop + Math.floor(hop / 2) - winLen / 2;
-      for (let i = 0; i < winLen; i++) {
-        const j = start + i;
-        if (j >= 0 && j < x.length) re[i] = x[j] * win[i];
-      }
-      fft(re, im);
-      for (let b = 0; b < nb; b++) {
-        const v = 10 * Math.log10(re[b] * re[b] + im[b] * im[b] + 1e-12);
-        db[m * nb + b] = v;
-        top = Math.max(top, v);
-      }
-    }
+    for (let m = 0; m < frames; m++) this.frameDb(a * FS + (m + 0.5) * hop, win, re, im, db, m * nb);
+    const top = this.top;
     this.image.width = frames;
     this.image.height = nb;
     const g = this.image.getContext('2d');
     const img = g.createImageData(frames, nb);
     for (let m = 0; m < frames; m++) {
-      for (let b = 0; b < nb; b++) {
-        const u = Math.min(1, Math.max(0, (db[m * nb + b] - top + this.rangeDb) / this.rangeDb));
-        const k = 3 * Math.round(u * 255);
-        const p = 4 * ((nb - 1 - b) * frames + m);
-        img.data[p] = LUT[k];
-        img.data[p + 1] = LUT[k + 1];
-        img.data[p + 2] = LUT[k + 2];
+      for (let k = 0; k < nb; k++) {
+        const u = Math.min(1, Math.max(0, (db[m * nb + k] - top + this.rangeDb) / this.rangeDb));
+        const c = 3 * Math.round(u * 255);
+        const p = 4 * ((nb - 1 - k) * frames + m);
+        img.data[p] = LUT[c];
+        img.data[p + 1] = LUT[c + 1];
+        img.data[p + 2] = LUT[c + 2];
         img.data[p + 3] = 255;
       }
     }
