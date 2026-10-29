@@ -6,14 +6,17 @@ import { PHONES, PHONE_GROUPS, phoneByIpa, canGlide } from './dsp/phones.js';
 import { render, usesSample, analysePitch, analyseEnvelope, REFERENCE_TRACT_LENGTH } from './dsp/render.js';
 import { fromUrl, toQuery } from './state.js';
 import { Player, decodeToMono } from './audio.js';
-import { WaveformPlot, SpectrogramPlot, SpectrumPlot, frameSpectrum } from './plots.js';
+import { WaveformPlot, SpectrogramPlot, SpectrumPlot, frameSpectrum, setDecimalMark } from './plots.js';
+import { t, lang, LANGUAGES, example, num, DECIMAL, translatePage } from './i18n.js';
 
 const SAMPLES = {
-  speech: { label: 'Example sentence', url: 'sounds/speech.wav' },
+  speech: { label: () => t('sampleSpeech'), url: 'sounds/speech.wav' },
 };
 
 const params = new URLSearchParams(location.search);
-const page = { embed: params.get('embed') ?? '', hide: params.get('hide') ?? '' };
+const page = { embed: params.get('embed') ?? '', hide: params.get('hide') ?? '', lang: lang === 'en' ? '' : lang };
+setDecimalMark(DECIMAL);
+translatePage();
 const state = fromUrl();
 const player = new Player();
 player.volume = state.vol;
@@ -71,7 +74,7 @@ function slider(key, label, min, max, step, { unit = '', format, show, hint } = 
   const input = el('input', { type: 'range', min, max, step, 'aria-label': label });
   const out = el('output');
   input.addEventListener('input', () => set(key, Number(input.value)));
-  const show2 = (v) => (format ? format(v) : `${v}${unit ? ` ${unit}` : ''}`);
+  const show2 = (v) => (format ? format(v) : `${num(v)}${unit ? ` ${unit}` : ''}`);
   const labelEl = el('span', { class: 'row-label' }, typeof label === 'function' ? '' : label);
   const hintEl = hint ? el('span', { class: 'row-hint' }) : null;
   const wrap = el('label', { class: 'row slider' }, labelEl, input, out, hintEl);
@@ -98,7 +101,7 @@ function select(key, label, options, { show } = {}) {
     const opts = typeof options === 'function' ? options(state) : options;
     const sig = opts.map((o) => o[0]).join('|');
     if (sel.dataset.sig !== sig) {
-      sel.replaceChildren(...opts.map(([v, t]) => el('option', { value: v }, t)));
+      sel.replaceChildren(...opts.map(([v, label]) => el('option', { value: v }, label)));
       sel.dataset.sig = sig;
     }
   };
@@ -124,11 +127,11 @@ const synthTract = (s) => s.vt === 'synth';
 
 function phoneGrid() {
   const buttons = [];
-  const groups = PHONE_GROUPS.map(([group, title]) => el('div', { class: 'phone-group' },
-    el('span', { class: 'phone-group-title' }, title),
+  const groups = PHONE_GROUPS.map(([group]) => el('div', { class: 'phone-group' },
+    el('span', { class: 'phone-group-title' }, t(`group${group[0].toUpperCase()}${group.slice(1)}`)),
     el('div', { class: 'phones' }, ...PHONES.filter((p) => p.group === group).map((p) => {
       const b = el('button', {
-        type: 'button', class: 'phone', title: `/${p.ipa}/ as in “${p.example}”`, lang: 'und-fonipa',
+        type: 'button', class: 'phone', title: t('phoneAsIn', p.ipa, example(p)), lang: 'und-fonipa',
         onclick: () => choosePhone(p.ipa),
       }, p.ipa);
       buttons.push([p.ipa, b]);
@@ -157,7 +160,7 @@ const formantRanges = [[150, 1200], [400, 3200], [1000, 4200], [2000, 6000]];
 const formantSliders = formantRanges.map(([lo, hi], i) => {
   const key = `f${i + 1}`;
   return slider(key, () => (phoneByIpa(state.phone).group === 'vowel' || phoneByIpa(state.phone).group === 'approximant'
-    ? `F${i + 1}` : `Peak ${i + 1}`), lo, hi, 10, {
+    ? t('formant', i + 1) : t('peak', i + 1)), lo, hi, 10, {
     unit: 'Hz',
     show: (s) => synthTract(s) && phoneByIpa(s.phone).poles.length > i,
   });
@@ -169,101 +172,99 @@ function sampleControls() {
       if (file.files[0]) await setUserSample(await file.files[0].arrayBuffer(), file.files[0].name);
       file.value = '';
     } });
-  const upload = el('button', { type: 'button', onclick: () => file.click() }, 'Open file…');
-  const rec = el('button', { type: 'button', onclick: () => toggleRecording(rec) }, 'Record');
+  const upload = el('button', { type: 'button', onclick: () => file.click() }, t('openFile'));
+  const rec = el('button', { type: 'button', onclick: () => toggleRecording(rec) }, t('record'));
   const wrap = el('div', { class: 'row buttons' }, upload, rec, file);
   return register({ el: wrap, sync() {} }, null);
 }
 
 const sampleOptions = () => [
-  ...Object.entries(SAMPLES).map(([k, v]) => [k, v.label]),
+  ...Object.entries(SAMPLES).map(([k, v]) => [k, v.label()]),
   ...(userSample ? [['user', userSample.label]] : []),
 ];
 
 function buildControls() {
   const root = document.getElementById('controls');
   root.append(
-    card('source', 'Source', 'The excitation: vocal fold vibration (voiced), turbulent noise (unvoiced), or a mix.',
+    card('source', t('sourceTitle'), t('sourceIntro'),
       radio('src', [
-        ['synth', 'Synthetic'],
-        ['follow', 'Pitch from sample', 'A synthetic source that follows the pitch, voicing and loudness of the speech sample'],
-        ['residual', 'Residual from sample', 'The excitation estimated from the speech sample by removing its spectral envelope'],
+        ['synth', t('srcSynth')],
+        ['follow', t('srcFollow'), t('srcFollowTitle')],
+        ['residual', t('srcResidual'), t('srcResidualTitle')],
       ]),
       radio('model', [
-        ['impulse', 'Impulse train', 'Idealised excitation with a flat spectrum'],
-        ['rosenberg', 'Rosenberg', 'Rosenberg (1971) glottal pulse'],
-        ['lf', 'LF', 'Liljencrants–Fant glottal pulse model'],
-      ], { label: 'Glottal pulse', show: notResidual }),
-      slider('f0', 'F0', 50, 400, 1, { unit: 'Hz', show: (s) => s.src === 'synth' }),
-      slider('f0scale', 'Pitch shift', 0.5, 2, 0.01, {
-        format: (v) => `×${v.toFixed(2)}`, show: (s) => s.src === 'follow' }),
-      slider('oq', 'Open quotient', 0.3, 0.9, 0.01, {
-        format: (v) => v.toFixed(2), show: (s) => notResidual(s) && s.model === 'rosenberg' }),
-      slider('rd', 'Rd (tense–lax)', 0.3, 2.7, 0.01, {
-        format: (v) => v.toFixed(2), show: (s) => notResidual(s) && s.model === 'lf' }),
-      slider('jitter', 'Jitter', 0, 5, 0.1, { unit: '%', show: notResidual }),
-      slider('shimmer', 'Shimmer', 0, 20, 0.5, { unit: '%', show: notResidual }),
-      slider('mix', (s) => (s.src === 'follow' ? 'Noise when voiced' : 'Voiced – noise'), 0, 1, 0.01, {
+        ['impulse', t('modelImpulse'), t('modelImpulseTitle')],
+        ['rosenberg', 'Rosenberg', t('modelRosenbergTitle')],
+        ['lf', 'LF', t('modelLfTitle')],
+      ], { label: t('glottalPulse'), show: notResidual }),
+      slider('f0', t('f0'), 50, 400, 1, { unit: 'Hz', show: (s) => s.src === 'synth' }),
+      slider('f0scale', t('pitchShift'), 0.5, 2, 0.01, {
+        format: (v) => `×${num(v, 2)}`, show: (s) => s.src === 'follow' }),
+      slider('oq', t('openQuotient'), 0.3, 0.9, 0.01, {
+        format: (v) => num(v, 2), show: (s) => notResidual(s) && s.model === 'rosenberg' }),
+      slider('rd', t('rd'), 0.3, 2.7, 0.01, {
+        format: (v) => num(v, 2), show: (s) => notResidual(s) && s.model === 'lf' }),
+      slider('jitter', t('jitter'), 0, 5, 0.1, { unit: '%', show: notResidual }),
+      slider('shimmer', t('shimmer'), 0, 20, 0.5, { unit: '%', show: notResidual }),
+      slider('mix', (s) => (s.src === 'follow' ? t('mixFollow') : t('mixFixed')), 0, 1, 0.01, {
         format: (v) => `${Math.round((1 - v) * 100)} : ${Math.round(v * 100)}`, show: notResidual }),
       radio('noise', [
-        ['white', 'White', 'Steady white noise'],
-        ['pulsed', 'Pulsed', 'Noise whose level follows the glottal cycle, as in a breathy voice'],
-      ], { label: 'Noise', show: (s) => notResidual(s) && s.mix > 0 }),
-      checkbox('flatten', 'Flatten source spectrum', {
-        title: 'Remove the spectral tilt of the source, since the estimated envelope already contains it',
+        ['white', t('noiseWhite'), t('noiseWhiteTitle')],
+        ['pulsed', t('noisePulsed'), t('noisePulsedTitle')],
+      ], { label: t('noise'), show: (s) => notResidual(s) && s.mix > 0 }),
+      checkbox('flatten', t('flatten'), {
+        title: t('flattenTitle'),
         show: (s) => notResidual(s) && s.vt === 'sample' }),
       text((s) => (s.src === 'residual'
-        ? 'The residual is what remains of the sample after its spectral envelope is removed.'
-        : s.model === 'impulse'
-          ? 'An impulse train has a flat spectrum: all harmonics have the same level.'
-          : 'The glottal flow derivative is used, since lip radiation acts roughly as a derivative.')),
+        ? t('noteResidual')
+        : s.model === 'impulse' ? t('noteImpulse') : t('noteGlottal'))),
     ),
-    card('tract', 'Vocal tract', 'The filter: resonances (formants) of the vocal tract.',
+    card('tract', t('tractTitle'), t('tractIntro'),
       radio('vt', [
-        ['synth', 'Synthetic phone'],
-        ['sample', 'Estimated from sample', 'The spectral envelope of the speech sample, frame by frame'],
+        ['synth', t('vtSynth')],
+        ['sample', t('vtSample'), t('vtSampleTitle')],
       ]),
       phoneGrid(),
-      select('glide', 'Glide to', () => [['', 'none'], ...PHONES.filter(canGlide).map((p) => [p.ipa, `/${p.ipa}/  ${p.example}`])], {
+      select('glide', t('glideTo'), () => [['', t('glideNone')], ...PHONES.filter(canGlide).map((p) => [p.ipa, `/${p.ipa}/  ${example(p)}`])], {
         show: (s) => synthTract(s) && canGlide(phoneByIpa(s.phone)) }),
       ...formantSliders,
-      slider('vtl', 'Tract length', 10, 22, 0.1, {
+      slider('vtl', t('tractLength'), 10, 22, 0.1, {
         unit: 'cm', show: synthTract,
-        hint: (s) => `formants ×${(REFERENCE_TRACT_LENGTH / s.vtl).toFixed(2)}`,
+        hint: (s) => t('formantScale', num(REFERENCE_TRACT_LENGTH / s.vtl, 2)),
       }),
-      text((s) => `/${s.phone}/ as in “${phoneByIpa(s.phone).example}”. Formant values are approximate, for an adult male voice.`,
-        { show: synthTract }),
+      text((s) => t('noteTract', s.phone, example(phoneByIpa(s.phone))), { show: synthTract }),
     ),
-    card('sample', 'Speech sample', 'Used when the source or the vocal tract is estimated from speech.',
-      select('sample', 'Sample', sampleOptions),
+    card('sample', t('sampleTitle'), t('sampleIntro'),
+      select('sample', t('sample'), sampleOptions),
       sampleControls(),
       radio('method', [
-        ['lpc', 'Linear prediction', 'All-pole model of the envelope (time-domain filtering)'],
-        ['mel', 'Mel envelope', 'Mel-band envelope as in the Vocoder section of the book (STFT-domain filtering)'],
-      ], { label: 'Envelope' }),
-      slider('order', 'Model order', 4, 40, 1, { show: (s) => s.method === 'lpc' }),
-      slider('bands', 'Mel bands', 10, 60, 1, { show: (s) => s.method === 'mel' }),
+        ['lpc', t('methodLpc'), t('methodLpcTitle')],
+        ['mel', t('methodMel'), t('methodMelTitle')],
+      ], { label: t('envelope') }),
+      slider('order', t('order'), 4, 40, 1, { show: (s) => s.method === 'lpc' }),
+      slider('bands', t('bands'), 10, 60, 1, { show: (s) => s.method === 'mel' }),
       text(() => sampleStatus, { cls: 'note status' }),
     ),
   );
 
   const tr = document.getElementById('transport');
-  const playBtn = el('button', { type: 'button', class: 'play', onclick: togglePlay }, 'Play');
+  const playBtn = el('button', { type: 'button', class: 'play', onclick: togglePlay }, t('play'));
   tr.append(
     playBtn,
-    checkbox('loop', 'Continuous', { title: 'Loop the sound; changes are heard while it plays' }),
-    slider('fade', 'Fade', 0, 200, 1, { unit: 'ms' }),
-    slider('dur', 'Length', 0.2, 3, 0.1, { unit: 's', show: (s) => !usesSample(s) }),
-    radio('listen', [['output', 'Output'], ['source', 'Source'], ['original', 'Sample']], { label: 'Listen to' }),
-    slider('vol', 'Volume', 0, 1, 0.01, { format: (v) => `${Math.round(v * 100)} %` }),
-    el('button', { type: 'button', class: 'link', onclick: copyLink }, 'Copy link'),
+    checkbox('loop', t('loop'), { title: t('loopTitle') }),
+    slider('fade', t('fade'), 0, 200, 1, { unit: 'ms' }),
+    slider('dur', t('length'), 0.2, 3, 0.1, { unit: 's', show: (s) => !usesSample(s) }),
+    radio('listen', [['output', t('listenOutput')], ['source', t('listenSource')], ['original', t('listenOriginal')]],
+      { label: t('listenTo') }),
+    slider('vol', t('volume'), 0, 1, 0.01, { format: (v) => `${Math.round(v * 100)} %` }),
+    el('button', { type: 'button', class: 'link', onclick: copyLink }, t('copyLink')),
   );
   document.getElementById('zoom').append(zoomControls());
   document.getElementById('spec-option').append(radio('specwin', [
-    ['narrow', 'Narrow-band', '40 ms window: shows the harmonics'],
-    ['wide', 'Wide-band', '5 ms window: shows the formants and individual glottal pulses'],
+    ['narrow', t('narrowBand'), t('narrowBandTitle')],
+    ['wide', t('wideBand'), t('wideBandTitle')],
   ]));
-  controls.push({ el: playBtn, sync() { playBtn.textContent = player.playing ? 'Stop' : 'Play'; playBtn.classList.toggle('active', player.playing); } });
+  controls.push({ el: playBtn, sync() { playBtn.textContent = player.playing ? t('stop') : t('play'); playBtn.classList.toggle('active', player.playing); } });
 
   for (const id of page.hide.split(',').filter(Boolean)) {
     document.getElementById(`card-${id}`)?.setAttribute('hidden', '');
@@ -271,6 +272,21 @@ function buildControls() {
     if (id === 'transport') tr.hidden = true;
   }
   if (page.embed) document.body.classList.add('embed');
+  buildLanguageLinks();
+}
+
+// Links to the other language versions, keeping the current settings.
+function buildLanguageLinks() {
+  const nav = document.getElementById('languages');
+  if (!nav) return;
+  nav.replaceChildren(...Object.entries(LANGUAGES).map(([code, name]) => {
+    const a = el('a', { href: '#', hreflang: code, lang: code, 'aria-current': code === lang ? 'true' : null }, name);
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      location.href = `${location.pathname}${toQuery(state, { ...page, lang: code === 'en' ? '' : code })}`;
+    });
+    return a;
+  }));
 }
 
 function syncControls() {
@@ -296,9 +312,9 @@ async function loadSampleSignal(key) {
   if (key === 'user' && userSample) return userSample.x;
   const k = SAMPLES[key] ? key : 'speech';
   if (!loaded[k]) {
-    sampleStatus = 'Loading sample…';
+    sampleStatus = t('loadingSample');
     const res = await fetch(SAMPLES[k].url);
-    if (!res.ok) throw new Error(`Could not load ${SAMPLES[k].url}`);
+    if (!res.ok) throw new Error(t('loadFailed', SAMPLES[k].url));
     loaded[k] = await decodeToMono(await res.arrayBuffer());
   }
   return loaded[k];
@@ -314,9 +330,9 @@ function currentSample() {
     if (!loading) {
       loading = loadSampleSignal(key).then((x) => {
         sample = { key, x, pitch: null, envKey: '', envelope: null };
-        sampleStatus = `${(x.length / FS).toFixed(1)} s of speech`;
+        sampleStatus = t('sampleLength', num(x.length / FS, 1));
       }).catch((e) => {
-        sampleStatus = `${e.message}. Open the page through a web server (see README).`;
+        sampleStatus = t('needServer', e.message);
       }).finally(() => {
         loading = null;
         changed(false);
@@ -342,7 +358,7 @@ async function setUserSample(arrayBuffer, label) {
     if (!usesSample(state)) state.vt = 'sample';
     changed();
   } catch (e) {
-    sampleStatus = `Could not read the audio file (${e.message}).`;
+    sampleStatus = t('readFailed', e.message);
     syncControls();
   }
 }
@@ -359,7 +375,7 @@ async function toggleRecording(button) {
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
   } catch (e) {
-    sampleStatus = `No microphone access (${e.message}).`;
+    sampleStatus = t('noMicrophone', e.message);
     syncControls();
     return;
   }
@@ -367,18 +383,18 @@ async function toggleRecording(button) {
   recorder = new MediaRecorder(stream);
   recorder.ondataavailable = (ev) => chunks.push(ev.data);
   recorder.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach((track) => track.stop());
     clearTimeout(timer);
     recorder = null;
-    button.textContent = 'Record';
+    button.textContent = t('record');
     button.classList.remove('active');
     const blob = new Blob(chunks, { type: chunks[0]?.type });
-    await setUserSample(await blob.arrayBuffer(), 'Your recording');
+    await setUserSample(await blob.arrayBuffer(), t('yourRecording'));
   };
   recorder.start();
-  button.textContent = 'Stop recording';
+  button.textContent = t('stopRecording');
   button.classList.add('active');
-  sampleStatus = 'Recording… (at most 5 s)';
+  sampleStatus = t('recording');
   syncControls();
   const timer = setTimeout(() => recorder?.stop(), 5000);
 }
@@ -396,7 +412,7 @@ const plots = {
   spectrum: new SpectrumPlot(document.getElementById('spectrum')),
 };
 
-const LISTEN_LABELS = { output: 'Output', source: 'Source (excitation)', original: 'Speech sample' };
+const LISTEN_LABELS = { output: t('labelOutput'), source: t('labelSource'), original: t('labelOriginal') };
 
 function listenSignal() {
   if (!result) return null;
@@ -470,17 +486,17 @@ function drawSpectrum() {
   if (curvesShown.source) curves.push({ key: 'source', mag: frameSpectrum(result.source, n), colour: c('--c-source'), width: 1 });
   if (curvesShown.output) curves.push({ key: 'output', mag: frameSpectrum(result.output, n), colour: c('--c-output'), width: 1.25 });
   if (curvesShown.tract) curves.push({ key: 'tract', mag: result.tractAt(n), colour: c('--c-tract'), width: 2.5 });
-  plots.spectrum.setCurves(curves, `t = ${cursorT.toFixed(3)} s`);
+  plots.spectrum.setCurves(curves, `t = ${num(cursorT, 3)} s`);
   buildLegend();
 }
 
 function buildLegend() {
   const legend = document.getElementById('legend');
   const items = [
-    ['source', 'Source', '--c-source'],
-    ['tract', 'Vocal tract', '--c-tract'],
-    ['output', 'Output', '--c-output'],
-    ...(result?.original ? [['original', 'Sample', '--c-original']] : []),
+    ['source', t('legendSource'), '--c-source'],
+    ['tract', t('legendTract'), '--c-tract'],
+    ['output', t('legendOutput'), '--c-output'],
+    ...(result?.original ? [['original', t('legendOriginal'), '--c-original']] : []),
   ];
   const sig = items.map((i) => i[0]).join();
   if (legend.dataset.sig === sig) return;
@@ -557,11 +573,11 @@ function zoomControls() {
   const out = el('output');
   const btn = (label, title, fn) => el('button', { type: 'button', title, 'aria-label': title, onclick: fn }, label);
   const wrap = el('span', { class: 'zoom-buttons' },
-    btn('−', 'Zoom out', () => zoom(2)),
-    btn('+', 'Zoom in (around the cursor)', () => zoom(0.5)),
-    btn('◀', 'Move left', () => pan(-0.5)),
-    btn('▶', 'Move right', () => pan(0.5)),
-    btn('All', 'Show the whole signal', () => setView(0, 0)),
+    btn('−', t('zoomOut'), () => zoom(2)),
+    btn('+', t('zoomIn'), () => zoom(0.5)),
+    btn('◀', t('panLeft'), () => pan(-0.5)),
+    btn('▶', t('panRight'), () => pan(0.5)),
+    btn(t('zoomAll'), t('zoomAllTitle'), () => setView(0, 0)),
     out);
   controls.push({
     el: wrap,
@@ -569,7 +585,7 @@ function zoomControls() {
       const [a, b] = visibleRange();
       const zoomed = view.t1 > view.t0;
       const digits = b - a < 0.1 ? 3 : 2;
-      out.textContent = zoomed ? `${a.toFixed(digits)}–${b.toFixed(digits)} s` : '';
+      out.textContent = zoomed ? `${num(a, digits)}–${num(b, digits)} s` : '';
     },
   });
   return wrap;
@@ -635,16 +651,16 @@ async function copyLink() {
   history.replaceState(null, '', url);
   try {
     await navigator.clipboard.writeText(url);
-    flash('Link copied');
+    flash(t('linkCopied'));
   } catch {
-    window.prompt('Copy this link:', url);
+    window.prompt(t('copyThisLink'), url);
   }
 }
 
 function flash(msg) {
-  const t = el('div', { class: 'toast', role: 'status' }, msg);
-  document.body.append(t);
-  setTimeout(() => t.remove(), 1600);
+  const toast = el('div', { class: 'toast', role: 'status' }, msg);
+  document.body.append(toast);
+  setTimeout(() => toast.remove(), 1600);
 }
 
 document.addEventListener('keydown', (ev) => {

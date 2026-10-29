@@ -482,3 +482,22 @@ select {
   font-variant-numeric: tabular-nums;
   margin-left: 0.3rem;
 }
+
+.header-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  font-size: 0.9rem;
+}
+
+.languages {
+  display: inline-flex;
+  gap: 0.6rem;
+}
+
+.languages a[aria-current="true"] {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}

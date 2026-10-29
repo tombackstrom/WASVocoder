@@ -40,9 +40,14 @@ function niceStep(range, target) {
   return 10 * p;
 }
 
+let decimalMark = '.';
+export function setDecimalMark(mark) {
+  decimalMark = mark;
+}
+
 function fmt(v, step) {
   const d = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
-  return v.toFixed(d);
+  return v.toFixed(d).replace('.', decimalMark);
 }
 
 class Plot {

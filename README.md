@@ -36,11 +36,16 @@ Any source can be combined with any vocal tract. When both come from the same sa
 - Click or drag on a waveform or the spectrogram to choose the time shown in the spectrum plot. That plot overlays the source spectrum, the vocal tract response and the output spectrum.
 - Space starts and stops playback.
 
+## Languages
+
+The page is in English by default. Add `lang=fi` to the address for the Finnish version (*suomeksi*), or use the language links at the top of the page. All texts live in [src/i18n.js](src/i18n.js). To add a language, copy the `en` block, translate it, and add the language to `LANGUAGES`; any text left out falls back to English. A test checks that every language has every text.
+
 ## Links and embedding
 
 Every setting is stored in the page address, so *Copy link* gives a link that opens the demo in exactly that state. Two extra options are useful for embedding:
 
 - `embed=1` hides the title and footer.
+- `lang=fi` shows the Finnish version.
 - `hide=` takes a comma-separated list of parts to hide: `source`, `tract`, `sample`, `transport`, `waveform`, `excitation`, `spectrogram`, `spectrum`.
 - `z0` and `z1` set the visible time range in seconds, for example `z0=0.5&z1=0.53` to show a few glottal periods.
 

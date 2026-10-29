@@ -44,7 +44,7 @@ export const DEFAULTS = {
 };
 
 // Page-level options that are not synthesis settings.
-export const PAGE_OPTIONS = ['embed', 'hide'];
+export const PAGE_OPTIONS = ['embed', 'hide', 'lang'];
 
 export function fromUrl(search = location.search) {
   const params = new URLSearchParams(search);

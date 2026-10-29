@@ -151,3 +151,12 @@ test('settings survive a round trip through the URL', () => {
   assert.deepEqual(back, s);
   assert.equal(toQuery(DEFAULTS), '');
 });
+
+test('every language has every text and an example for every phone', async () => {
+  const { DICTS } = await import('../src/i18n.js');
+  const { PHONES } = await import('../src/dsp/phones.js');
+  for (const [code, dict] of Object.entries(DICTS)) {
+    for (const key of Object.keys(DICTS.en)) assert.ok(key in dict, `${code} is missing ${key}`);
+    if (code !== 'en') for (const p of PHONES) assert.ok(dict.examples[p.ipa], `${code} has no example for /${p.ipa}/`);
+  }
+});
